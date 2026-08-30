@@ -942,7 +942,7 @@ class AnalyticsService:
         # FILTER BY SECTOR
         # -------------------------
 
-        working_df = (
+        sector_df = (
 
             self.filter_by_sector(
 
@@ -963,13 +963,25 @@ class AnalyticsService:
 
             self.filter_time_period(
 
-                working_df,
+                sector_df,
 
                 time_period,
 
                 "Created Date"
             )
         )
+
+
+        date_fallback_applied = False
+        fallback_note = None
+
+        if working_df.empty and not sector_df.empty and time_period:
+            working_df = sector_df
+            date_fallback_applied = True
+            fallback_note = (
+                f"Note: No deals in the dataset were created in the current calendar period ({time_period}). "
+                f"The latest creation month in the dataset is January 2026. Showing all {len(sector_df)} opportunities created in the dataset."
+            )
 
 
         # -------------------------
@@ -1072,7 +1084,7 @@ class AnalyticsService:
                 }
 
 
-        return {
+        res = {
 
             "analysis_type":
                 "opportunity_generation",
@@ -1086,7 +1098,10 @@ class AnalyticsService:
                     time_period,
 
                 "date_column":
-                    "Created Date"
+                    "Created Date",
+
+                "date_fallback_applied":
+                    date_fallback_applied
             },
 
             "new_opportunity_count":
@@ -1100,6 +1115,11 @@ class AnalyticsService:
             "sector_breakdown":
                 sector_breakdown
         }
+
+        if fallback_note:
+            res["date_filter_note"] = fallback_note
+
+        return res
 
 
 analytics_service = (

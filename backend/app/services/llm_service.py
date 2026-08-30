@@ -169,27 +169,52 @@ Question:
         analysis: dict,
         data_quality: list[str]
     ) -> str:
-        lines = [f"### Executive Analysis Summary"]
-        lines.append(f"**Question**: {question}\n")
+        lines = [
+            "### Executive Analysis Summary (Auto-Generated)",
+            f"**Question**: {question}\n"
+        ]
+
+        # Extract the date filter note if present
+        date_note = analysis.get("date_filter_note", "")
+        if date_note:
+            lines.append(f"> **Context Alert**: {date_note}\n")
 
         analysis_type = analysis.get("analysis_type", "Business Analysis")
-        lines.append(f"**Analysis Category**: `{analysis_type}`\n")
-
-        lines.append("#### Key Metrics")
+        
+        lines.append("### Key Metrics & Insights")
         for key, val in analysis.items():
-            if key in ["analysis_type", "filters"]:
+            if key in ["analysis_type", "filters", "date_fallback_applied", "date_filter_note", "message"]:
                 continue
+            
+            clean_key = key.replace('_', ' ').title()
+            
             if isinstance(val, (int, float)):
-                lines.append(f"- **{key.replace('_', ' ').title()}**: {val:,.2f}" if isinstance(val, float) else f"- **{key.replace('_', ' ').title()}**: {val:,}")
-            elif isinstance(val, dict):
-                lines.append(f"\n**{key.replace('_', ' ').title()} Breakdown**:")
+                formatted_val = f"{val:,.2f}" if isinstance(val, float) else f"{val:,}"
+                lines.append(f"* **{clean_key}**: {formatted_val}")
+            
+            elif isinstance(val, dict) and val:
+                lines.append(f"\n#### {clean_key} Breakdown")
                 for sub_k, sub_v in val.items():
-                    lines.append(f"  - {sub_k}: {sub_v}")
+                    if isinstance(sub_v, dict):
+                        # Nested dict (like sector breakdown)
+                        metrics_str = ", ".join(
+                            f"{mk.replace('_', ' ').title()}: {mv:,.2f}" if isinstance(mv, (float, int)) and not isinstance(mv, bool) else f"{mk.replace('_', ' ').title()}: {mv}"
+                            for mk, mv in sub_v.items()
+                        )
+                        lines.append(f"  - **{str(sub_k).title()}**: {metrics_str}")
+                    else:
+                        if isinstance(sub_v, (int, float)) and not isinstance(sub_v, bool):
+                            formatted_sub = f"{sub_v:,.2f}" if isinstance(sub_v, float) else f"{sub_v:,}"
+                        else:
+                            formatted_sub = str(sub_v)
+                        lines.append(f"  - **{str(sub_k).title()}**: {formatted_sub}")
 
         if data_quality:
-            lines.append("\n#### Data Quality Notes")
+            lines.append("\n### Risks & Data Quality Caveats")
             for note in data_quality:
-                lines.append(f"- {note}")
+                # Avoid duplicating the date note
+                if note != date_note:
+                    lines.append(f"* {note}")
 
         return "\n".join(lines)
 
