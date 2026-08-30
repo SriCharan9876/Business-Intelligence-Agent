@@ -1,202 +1,245 @@
 import json
-from typing import Optional, Literal
-from pydantic import BaseModel
+import re
 
 from google import genai
-from google.genai import types
 
 from app.config import settings
 
 
-class QuerySchema(BaseModel):
-    intent: Literal[
-        "pipeline_analysis",
-        "work_order_analysis",
-        "sector_comparison",
-        "leadership_update"
-    ]
-    sector: Optional[str] = None
-    time_period: Optional[str] = None
-
-
 class LLMService:
+
 
     def __init__(self):
 
         self.client = genai.Client(
-            api_key=settings.GEMINI_API_KEY
+
+            api_key=
+            settings.GEMINI_API_KEY
         )
 
-        self.model = "gemini-2.5-flash"
 
+        self.model = (
+            "gemini-3.6-flash"
+        )
+
+
+    # =================================
+    # QUERY UNDERSTANDING
+    # =================================
+
+    def _fallback_understand_question(self, question: str) -> dict:
+        q_lower = question.lower()
+        sector = None
+        known_sectors = [
+            "energy", "mining", "renewables", "powerline",
+            "railways", "dsp", "tender", "construction",
+            "security"
+        ]
+        for s in known_sectors:
+            if s in q_lower:
+                sector = s.capitalize()
+                break
+
+        time_period = None
+        if "quarter" in q_lower:
+            time_period = "current_quarter"
+        elif "month" in q_lower:
+            time_period = "current_month"
+        elif "year" in q_lower:
+            time_period = "current_year"
+
+        if any(k in q_lower for k in ["work order", "completion", "billed", "collected", "receivable", "execution"]):
+            intent = "work_order_analysis"
+            needs_deals = False
+            needs_work_orders = True
+        elif any(k in q_lower for k in ["opportunity", "created", "generated", "new deal"]):
+            intent = "opportunity_generation"
+            needs_deals = True
+            needs_work_orders = False
+        elif any(k in q_lower for k in ["compare", "overview", "leadership", "executive", "summary"]):
+            intent = "business_overview"
+            needs_deals = True
+            needs_work_orders = True
+        else:
+            intent = "pipeline_analysis"
+            needs_deals = True
+            needs_work_orders = False
+
+        return {
+            "intent": intent,
+            "sector": sector,
+            "time_period": time_period,
+            "needs_deals": needs_deals,
+            "needs_work_orders": needs_work_orders
+        }
 
     def understand_question(
         self,
         question: str
-    ):
+    ) -> dict:
 
         prompt = f"""
-You are a Business Intelligence
-query understanding system.
+You are a query understanding component
+for a business intelligence agent.
 
-You work with two monday.com boards.
+The company has two datasets:
 
-DEALS BOARD:
-
+1. DEAL FUNNEL
+Columns:
 - Deal Name
+- Owner code
+- Client Code
 - Deal Status
-- Close Date
+- Close Date (A)
 - Closure Probability
-- Deal Value
+- Masked Deal value
 - Tentative Close Date
 - Deal Stage
-- Product
-- Sector
+- Product deal
+- Sector/service
 - Created Date
 
-WORK ORDERS BOARD:
-
-- Customer
+2. WORK ORDER TRACKER
+Columns include:
+- Deal name masked
+- Customer Name Code
+- Serial #
 - Nature of Work
 - Execution Status
-- Delivery Date
-- Start Date
-- End Date
+- Data Delivery Date
+- Date of PO/LOI
+- Probable Start Date
+- Probable End Date
+- BD/KAM Personnel code
 - Sector
-- Work Order Value
+- Type of Work
+- Amount in Rupees
 - Billed Value
 - Collected Amount
-- Receivable Amount
+- Amount to be billed
+- Amount Receivable
+- Invoice Status
+- Collection status
 - Billing Status
-- Collection Status
 
-Classify the user's business question.
+Classify the question.
 
-Use:
+Allowed intents:
+1. pipeline_analysis
+2. pipeline_by_sector
+3. opportunity_generation
+4. work_order_analysis
+5. business_overview
+6. leadership_update
+7. sector_comparison
 
-pipeline_analysis
-for sales, deals, pipeline and
-opportunities.
+Return ONLY valid JSON.
 
-Use:
-
-work_order_analysis
-for operations, execution,
-billing, collection and
-work orders.
-
-Use:
-
-sector_comparison
-when comparing sectors or
-combining sales and operations.
-
-Use:
-
-leadership_update
-when requesting an executive,
-leadership or founder update.
-
-Time period values:
-
-current_quarter
-current_month
-this_year
-all_time
-or null.
-
-User question:
-
+Question:
 {question}
 """
 
-        response = (
-            self.client.models.generate_content(
-
+        try:
+            response = self.client.models.generate_content(
                 model=self.model,
-
-                contents=prompt,
-
-                config=
-                    types.GenerateContentConfig(
-
-                        response_mime_type=
-                            "application/json",
-
-                        response_schema=
-                            QuerySchema,
-
-                        temperature=0
-                    )
+                contents=prompt
             )
-        )
 
-        return json.loads(
-            response.text
-        )
+            text = response.text.strip()
+            text = re.sub(r"^```json", "", text, flags=re.MULTILINE)
+            text = re.sub(r"^```", "", text, flags=re.MULTILINE).strip()
 
+            parsed = json.loads(text)
+            if not isinstance(parsed, dict):
+                return self._fallback_understand_question(question)
+            return parsed
+
+        except Exception as e:
+            print(f"[LLMService] Gemini API call failed ({e}), using fallback parser.")
+            return self._fallback_understand_question(question)
+
+
+    # =================================
+    # EXECUTIVE ANSWER
+    # =================================
+
+    def _fallback_generate_answer(
+        self,
+        question: str,
+        analysis: dict,
+        data_quality: list[str]
+    ) -> str:
+        lines = [f"### Executive Analysis Summary"]
+        lines.append(f"**Question**: {question}\n")
+
+        analysis_type = analysis.get("analysis_type", "Business Analysis")
+        lines.append(f"**Analysis Category**: `{analysis_type}`\n")
+
+        lines.append("#### Key Metrics")
+        for key, val in analysis.items():
+            if key in ["analysis_type", "filters"]:
+                continue
+            if isinstance(val, (int, float)):
+                lines.append(f"- **{key.replace('_', ' ').title()}**: {val:,.2f}" if isinstance(val, float) else f"- **{key.replace('_', ' ').title()}**: {val:,}")
+            elif isinstance(val, dict):
+                lines.append(f"\n**{key.replace('_', ' ').title()} Breakdown**:")
+                for sub_k, sub_v in val.items():
+                    lines.append(f"  - {sub_k}: {sub_v}")
+
+        if data_quality:
+            lines.append("\n#### Data Quality Notes")
+            for note in data_quality:
+                lines.append(f"- {note}")
+
+        return "\n".join(lines)
 
     def generate_answer(
         self,
         question: str,
-        analysis: dict
-    ):
-
-        analysis_json = json.dumps(
-            analysis,
-            default=str,
-            indent=2
-        )
+        analysis: dict,
+        data_quality: list[str]
+    ) -> str:
 
         prompt = f"""
-You are an executive Business
-Intelligence Agent for Skylark Drones.
+You are a business intelligence
+assistant for company founders
+and executives.
 
-Answer using ONLY the provided
-analysis.
+Answer the user's question using
+ONLY the calculated analysis provided.
 
-Never invent metrics or numbers.
+Do NOT invent numbers.
+Do NOT perform new calculations.
+Do NOT claim causation unless
+directly supported by the data.
 
-The audience is a founder.
+Be concise but insightful.
 
-Your response should contain:
+Structure the response as:
+1. Executive summary
+2. Key metrics
+3. Important insights
+4. Risks or caveats
 
-DIRECT ANSWER
-
-KEY INSIGHTS
-
-RISKS OR CAVEATS
-
-DATA QUALITY NOTES
-only if relevant.
-
-Be concise and business-focused.
-
-Question:
-
+User Question:
 {question}
 
-Analysis:
+Calculated Analysis:
+{json.dumps(analysis, default=str, indent=2)}
 
-{analysis_json}
+Data Quality Notes:
+{json.dumps(data_quality, indent=2)}
 """
 
-        response = (
-            self.client.models.generate_content(
-
+        try:
+            response = self.client.models.generate_content(
                 model=self.model,
-
-                contents=prompt,
-
-                config=
-                    types.GenerateContentConfig(
-
-                        temperature=0.2
-                    )
+                contents=prompt
             )
-        )
-
-        return response.text
+            return response.text.strip()
+        except Exception as e:
+            print(f"[LLMService] Gemini generate_answer failed ({e}), using fallback formatting.")
+            return self._fallback_generate_answer(question, analysis, data_quality)
 
 
 llm_service = LLMService()

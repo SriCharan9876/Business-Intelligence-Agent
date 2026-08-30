@@ -1,31 +1,23 @@
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
+from pydantic_settings import BaseSettings
 
 
-class Settings:
+class Settings(BaseSettings):
 
-    MONDAY_API_TOKEN = os.getenv(
-        "MONDAY_API_TOKEN"
-    )
+    MONDAY_API_TOKEN: str
 
-    DEALS_BOARD_ID = os.getenv(
-        "DEALS_BOARD_ID"
-    )
+    DEALS_BOARD_ID: str
 
-    WORK_ORDERS_BOARD_ID = os.getenv(
-        "WORK_ORDERS_BOARD_ID"
-    )
+    WORK_ORDERS_BOARD_ID: str
 
-    GEMINI_API_KEY = os.getenv(
-        "GEMINI_API_KEY"
-    )
+    GEMINI_API_KEY: str
 
-    FRONTEND_URL = os.getenv(
-        "FRONTEND_URL",
+    FRONTEND_URL: str = (
         "http://localhost:5173"
     )
+
+    class Config:
+
+        env_file = ".env"
 
 
 settings = Settings()
