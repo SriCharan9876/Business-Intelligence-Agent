@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.schemas import (
     ChatRequest,
@@ -23,11 +23,15 @@ router = APIRouter(
 async def chat(
     request: ChatRequest
 ):
-
-    result = (
-        await bi_agent.answer_question(
-            request.message
+    try:
+        result = (
+            await bi_agent.answer_question(
+                request.message
+            )
         )
-    )
 
-    return result
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"System Error: {str(e)}")

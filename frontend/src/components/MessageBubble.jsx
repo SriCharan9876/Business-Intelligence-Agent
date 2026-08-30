@@ -1,3 +1,5 @@
+import ReactMarkdown from 'react-markdown';
+
 function MessageBubble({
   message,
   role
@@ -7,7 +9,7 @@ function MessageBubble({
     <div
       className={`message ${role}`}
     >
-      {message}
+      <ReactMarkdown>{message}</ReactMarkdown>
     </div>
   );
 }

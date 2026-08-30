@@ -214,6 +214,14 @@ class AnalyticsService:
                 == today.year
             ]
 
+        import re
+        match = re.match(r'last_(\d+)_months?', time_period)
+        if match:
+            months = int(match.group(1))
+            return df[
+                df[date_column] >= (today - pd.DateOffset(months=months))
+            ]
+
         return df
 
 

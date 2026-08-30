@@ -69,6 +69,11 @@ function ChatWindow() {
 
       } catch (error) {
 
+        const errorMessage = error.response?.data?.detail 
+          || error.response?.data?.error
+          || error.message 
+          || "Sorry, an unknown error occurred while retrieving data.";
+
         setMessages(
           previous => [
             ...previous,
@@ -77,7 +82,7 @@ function ChatWindow() {
               role: "assistant",
 
               message:
-                "Sorry, I was unable to retrieve the business data."
+                `⚠️ **Error encountered:**\n${errorMessage}`
             }
           ]
         );

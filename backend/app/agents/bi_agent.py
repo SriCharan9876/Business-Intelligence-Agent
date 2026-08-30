@@ -172,8 +172,14 @@ class BIAgent:
             )
         )
 
-        if isinstance(analysis, dict) and analysis.get("date_filter_note"):
-            data_quality.insert(0, analysis["date_filter_note"])
+        if isinstance(analysis, dict):
+            if analysis.get("date_filter_note"):
+                data_quality.insert(0, analysis["date_filter_note"])
+            
+            # Pass along any parser fallback errors so the frontend can display them
+            parser_error = query_info.get("fallback_error")
+            if parser_error:
+                analysis["fallback_error"] = parser_error
 
 
         # ==========================

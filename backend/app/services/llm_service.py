@@ -40,8 +40,17 @@ class LLMService:
                 sector = s.capitalize()
                 break
 
+        import re
         time_period = None
-        if "quarter" in q_lower:
+        
+        match = re.search(r'(last|past)\s+(\d+)?\s*(month|year)s?', q_lower)
+        if match:
+            num_str = match.group(2)
+            num = int(num_str) if num_str else 1
+            if "year" in match.group(3):
+                num *= 12
+            time_period = f"last_{num}_months"
+        elif "quarter" in q_lower:
             time_period = "current_quarter"
         elif "month" in q_lower:
             time_period = "current_month"
@@ -133,7 +142,14 @@ Allowed intents:
 6. leadership_update
 7. sector_comparison
 
-Return ONLY valid JSON.
+Also extract 'time_period' if the user mentions a timeframe.
+Valid time_periods:
+- "current_month"
+- "current_quarter"
+- "current_year"
+- "last_N_months" (e.g., if user says "last 12 months", return "last_12_months", if "past 3 months", return "last_3_months")
+
+Return ONLY valid JSON containing 'intent', 'time_period', and 'sector' (if applicable).
 
 Question:
 {question}
@@ -156,7 +172,9 @@ Question:
 
         except Exception as e:
             print(f"[LLMService] Gemini API call failed ({e}), using fallback parser.")
-            return self._fallback_understand_question(question)
+            parsed = self._fallback_understand_question(question)
+            parsed["fallback_error"] = str(e)
+            return parsed
 
 
     # =================================
@@ -167,10 +185,27 @@ Question:
         self,
         question: str,
         analysis: dict,
-        data_quality: list[str]
+        data_quality: list[str],
+        error_msg: str = "Unknown error"
     ) -> str:
+        
+        # If understand_question failed earlier, include its error too
+        parser_error = analysis.get("fallback_error")
+        
+        # Hide internal error details from the user, provide a generic explanation
+        if parser_error and "429" in error_msg:
+            error_str = "High demand/Rate limited (Parser & Generator)"
+        elif "429" in error_msg:
+            error_str = "High demand/Rate limited (Generator)"
+        elif parser_error:
+            error_str = "Query parsing failed, used strict keyword fallback"
+        else:
+            error_str = "Service unavailable"
+
         lines = [
             "### Executive Analysis Summary (Auto-Generated)",
+            f"> **API Error Alert**: Due to an AI service error (`{error_str}`), this is an automated structured summary.",
+            "",
             f"**Question**: {question}\n"
         ]
 
@@ -264,7 +299,7 @@ Data Quality Notes:
             return response.text.strip()
         except Exception as e:
             print(f"[LLMService] Gemini generate_answer failed ({e}), using fallback formatting.")
-            return self._fallback_generate_answer(question, analysis, data_quality)
+            return self._fallback_generate_answer(question, analysis, data_quality, str(e))
 
 
 llm_service = LLMService()
